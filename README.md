@@ -21,9 +21,10 @@ This repository contains the PyTorch implementation of the **BDH (Big Deep Hiera
 ## Installation
 
 1. Clone the repository.
-2. Install dependencies:
+2. Install dependencies (using `uv` is recommended):
    ```bash
-   pip install -r requirements.txt
+   pip install uv
+   uv pip install --system -r requirements.txt
    ```
 
 ## Usage

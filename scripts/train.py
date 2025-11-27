@@ -14,6 +14,7 @@ import tiktoken
 
 # Import model architectures
 import sys
+import csv
 from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -24,6 +25,7 @@ BLOCK_SIZE = 256  # Maximum sequence length
 BATCH_SIZE = 8    # Physical batch size
 GRAD_ACCUM_STEPS = 8  # Effective batch size = 64
 MAX_ITERS = 20000
+LOG_FILE = "training_log.csv"
 
 # Learning Rate Schedule
 MAX_LR = 6e-4
@@ -63,7 +65,7 @@ else:
     scaler = MockScaler()
 
 # --- Performance Optimizations ---
-torch.manual_seed(1337)
+torch.manual_seed(42)
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
@@ -285,6 +287,11 @@ if __name__ == "__main__":
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=MAX_LR, weight_decay=WEIGHT_DECAY)
     
+    # Initialize CSV Logger
+    with open(LOG_FILE, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['step', 'loss', 'train_acc', 'val_acc', 'val_loss', 'lr'])
+
     # Training loop
     print(f"\nStarting training for {MAX_ITERS} iterations...")
     print(f"Batch size: {BATCH_SIZE} (Accumulated: {BATCH_SIZE*GRAD_ACCUM_STEPS})")
@@ -326,6 +333,16 @@ if __name__ == "__main__":
                 train_acc = (preds == labels).float().mean().item()
             
             print(f"Step: {step}/{MAX_ITERS} | loss: {avg_loss:.4f} | train_acc: {train_acc:.4f} | lr: {lr:.2e}")
+            
+            # Log to CSV (use -1 for val metrics initially)
+            with open(LOG_FILE, 'a', newline='') as f:
+                writer = csv.writer(f)
+                # Note: We only log val metrics when they are computed, otherwise we leave them empty or repeat last known
+                # For simplicity, let's log basic step info here. Ideally we'd want one unified log row per step if possible, 
+                # but since val happens less frequently, we'll just append what we have.
+                # To make it clean, we can just log the training metrics here.
+                writer.writerow([step, f"{avg_loss:.4f}", f"{train_acc:.4f}", "", "", f"{lr:.2e}"])
+
             loss_acc = 0.0
             loss_steps = 0
         
@@ -335,6 +352,12 @@ if __name__ == "__main__":
             val_accuracy, val_loss = evaluate(model, val_dataset)
             print(f"Validation accuracy: {val_accuracy:.4f} | Validation loss: {val_loss:.4f}")
             
+            # Update CSV with validation metrics
+            # We'll write a special row or just re-log the step with val metrics
+            with open(LOG_FILE, 'a', newline='') as f:
+                 writer = csv.writer(f)
+                 writer.writerow([step, "", "", f"{val_accuracy:.4f}", f"{val_loss:.4f}", ""])
+
             if val_accuracy > best_val_accuracy:
                 best_val_accuracy = val_accuracy
                 print(f"New best validation accuracy: {best_val_accuracy:.4f}")
