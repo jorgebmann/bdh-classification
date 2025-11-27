@@ -36,21 +36,54 @@ Once connected to the remote terminal:
     ```
     *(Note: If your repo is private, you may need to generate a GitHub Personal Access Token and use it in the URL: `https://<token>@github.com/...`)*
 
-2.  **Install Dependencies (using `uv` for speed)**:
+2.  **Set Up Virtual Environment and Install Dependencies**:
     ```bash
+    # Create a virtual environment
+    python3 -m venv venv
+    
+    # Activate the virtual environment
+    source venv/bin/activate
+    
+    # Upgrade pip
+    pip install --upgrade pip
+    
+    # Install PyTorch with CUDA 12.1 (for RTX 4090/5080 and newer GPUs)
+    # For older GPUs (GTX 1060, etc.), use CUDA 11.8 instead:
+    #   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+    
+    # Install remaining dependencies
+    pip install -r requirements.txt
+    ```
+    
+    **Alternative: Using `uv` (faster)**:
+    ```bash
+    # Create and activate virtual environment
+    python3 -m venv venv
+    source venv/bin/activate
+    
     # Install uv
     pip install uv
-
-    # Install requirements
-    uv pip install --system -r requirements.txt
+    
+    # Install PyTorch first
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+    
+    # Install remaining dependencies with uv
+    uv pip install -r requirements.txt
     ```
 
 ## 4. Running Training
+
+**Important**: Make sure your virtual environment is activated (`source venv/bin/activate`) before running training.
 
 For a 16GB+ GPU (RTX 5080/4090), use larger batch sizes for efficiency.
 
 1.  **Start Training**:
     ```bash
+    # Ensure virtual environment is activated
+    source venv/bin/activate
+    
+    # Start training
     python scripts/train.py --batch_size 64 --max_iters 5000
     ```
     *   **`--batch_size 64`**: Utilizes the large VRAM.
@@ -59,6 +92,10 @@ For a 16GB+ GPU (RTX 5080/4090), use larger batch sizes for efficiency.
 2.  **Background Training (Optional)**:
     To keep training running if you disconnect:
     ```bash
+    # Ensure virtual environment is activated
+    source venv/bin/activate
+    
+    # Run in background
     nohup python scripts/train.py --batch_size 64 --max_iters 5000 > training_output.log 2>&1 &
     ```
     *   Check progress with: `tail -f training_output.log`
