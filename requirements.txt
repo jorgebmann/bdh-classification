@@ -1,0 +1,19 @@
+# requirements.txt for BDH-Official project
+
+# PyTorch with CUDA support
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch
+torchvision
+torchaudio
+
+# Data and Metrics
+numpy
+scikit-learn>=1.0.0
+datasets>=2.0.0
+tiktoken
+
+# Visualization and Utilities
+matplotlib
+seaborn
+tqdm
+requests
