@@ -1,10 +1,10 @@
 # requirements.txt for BDH-Official project
 
 # PyTorch with CUDA support
-# --extra-index-url https://download.pytorch.org/whl/cu121
-# torch
-# torchvision
-# torchaudio
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch
+torchvision
+torchaudio
 
 # Data and Metrics
 numpy
