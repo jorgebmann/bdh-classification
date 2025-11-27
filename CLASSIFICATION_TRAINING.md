@@ -18,6 +18,7 @@ The BDH training pipeline has been updated to support binary sentiment classific
   - Implements BPE text encoding (tiktoken)
   - Training loop with classification metrics
   - Validation evaluation with accuracy tracking
+  - **CSV Logging**: Metrics are saved to `training_log.csv` for easy tracking
   
 - **`scripts/predict.py`**: Inference script
   - Loads trained model
@@ -53,7 +54,11 @@ WEIGHT_DECAY = 0.1        # L2 regularization
 
 ### 1. Install Dependencies
 ```bash
-pip install -r requirements.txt
+# Install uv
+pip install uv
+
+# Install requirements
+uv pip install --system -r requirements.txt
 ```
 
 ### 2. Run Training
@@ -69,6 +74,22 @@ python scripts/train.py --max_iters 5000 --batch_size 16 --learning_rate 1e-3
 ```bash
 python scripts/predict.py
 ```
+
+## Output Files
+
+### Training Log
+Training progress is saved to `training_log.csv` in the current directory. This file contains the following columns:
+- `step`: Current training iteration
+- `loss`: Training loss
+- `train_acc`: Training accuracy
+- `val_acc`: Validation accuracy (only on validation steps)
+- `val_loss`: Validation loss (only on validation steps)
+- `lr`: Current learning rate
+
+### Model Checkpoints
+- `bdh_sst2_best.pth`: Model with the highest validation accuracy
+- `bdh_sst2_checkpoint_*.pth`: Periodic checkpoints
+- `bdh_sst2_final.pth`: Final trained model
 
 ## Model Loading
 
