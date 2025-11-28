@@ -16,20 +16,21 @@ import tiktoken
 import sys
 import csv
 from pathlib import Path
+
 sys.path.append(str(Path(__file__).parent.parent))
 
 from bdh import BDHConfig, BDHClassifier
 
 # --- Configuration Section ---
 BLOCK_SIZE = 256  # Maximum sequence length
-BATCH_SIZE = 8    # Physical batch size
-GRAD_ACCUM_STEPS = 8  # Effective batch size = 64
+BATCH_SIZE = 64  # Physical batch size (optimized for V100 GPU with 16GB VRAM)
+GRAD_ACCUM_STEPS = 1  # No gradient accumulation needed with larger batch size
 MAX_ITERS = 20000
 LOG_FILE = "training_log.csv"
 
-# Learning Rate Schedule
-MAX_LR = 6e-4
-MIN_LR = 6e-5
+# Learning Rate Schedule (adjusted for larger batch size)
+MAX_LR = 8e-4  # Increased from 6e-4 for batch size 64
+MIN_LR = 8e-5  # Scaled proportionally
 WARMUP_ITERS = 2000
 LR_DECAY_ITERS = 20000
 
@@ -60,8 +61,12 @@ else:
     # We create a dummy scaler that does nothing
     class MockScaler:
         def scale(self, loss): return loss
+
         def step(self, optimizer): optimizer.step()
+
         def update(self): pass
+
+
     scaler = MockScaler()
 
 # --- Performance Optimizations ---
@@ -76,6 +81,7 @@ print(f"Using device: {device} with dtype: {dtype}")
 # Initialize tokenizer globally
 enc = tiktoken.get_encoding("gpt2")
 
+
 def encode_text(text, max_length=BLOCK_SIZE):
     """
     Convert text to BPE tokens using tiktoken (GPT-2 encoding).
@@ -86,35 +92,35 @@ def encode_text(text, max_length=BLOCK_SIZE):
     except Exception:
         # Fallback for empty or weird strings
         ids = []
-        
+
     # Truncate if too long
     if len(ids) > max_length:
         ids = ids[:max_length]
-    
+
     # Pad if too short (using 50256 as padding, which is <|endoftext|>)
-    padding_token = 50256 
+    padding_token = 50256
     if len(ids) < max_length:
         ids.extend([padding_token] * (max_length - len(ids)))
-    
+
     return torch.tensor(ids, dtype=torch.long)
 
 
 def load_sst2_data():
     """
     Load SST-2 dataset from HuggingFace.
-    
+
     Returns:
         train_dataset, validation_dataset
     """
     print("Loading SST-2 dataset...")
     dataset = load_dataset("glue", "sst2")
-    
+
     train_dataset = dataset["train"]
     val_dataset = dataset["validation"]
-    
+
     print(f"Train examples: {len(train_dataset)}")
     print(f"Validation examples: {len(val_dataset)}")
-    
+
     return train_dataset, val_dataset
 
 
@@ -124,23 +130,23 @@ def get_batch(dataset, batch_size=BATCH_SIZE, indices=None):
     """
     if indices is None:
         indices = np.random.randint(0, len(dataset), size=batch_size)
-    
+
     inputs = []
     labels = []
-    
+
     for idx in indices:
         example = dataset[int(idx)]
         text = example["sentence"]
         label = example["label"]
-        
+
         # Encode text
         encoded = encode_text(text)
         inputs.append(encoded)
         labels.append(label)
-    
+
     inputs = torch.stack(inputs).to(device, non_blocking=True)
     labels = torch.tensor(labels, dtype=torch.long).to(device, non_blocking=True)
-    
+
     return inputs, labels
 
 
@@ -150,40 +156,40 @@ def evaluate(model, dataset, max_batches=None):
     Evaluate the model on a dataset.
     """
     model.eval()
-    
+
     all_preds = []
     all_labels = []
     total_loss = 0.0
     num_batches = 0
-    
+
     # Determine number of batches
     num_examples = len(dataset)
     num_batches_total = (num_examples + BATCH_SIZE - 1) // BATCH_SIZE
-    
+
     if max_batches is not None:
         num_batches_total = min(num_batches_total, max_batches)
-    
+
     # Evaluate in batches
     for i in range(num_batches_total):
         start_idx = i * BATCH_SIZE
         end_idx = min(start_idx + BATCH_SIZE, num_examples)
         indices = list(range(start_idx, end_idx))
-        
+
         inputs, labels = get_batch(dataset, batch_size=len(indices), indices=indices)
-        
+
         with ctx:
             logits, loss = model(inputs, labels)
-        
+
         preds = torch.argmax(logits, dim=-1)
-        
+
         all_preds.extend(preds.cpu().numpy())
         all_labels.extend(labels.cpu().numpy())
         total_loss += loss.item()
         num_batches += 1
-    
+
     accuracy = accuracy_score(all_labels, all_preds)
     avg_loss = total_loss / num_batches
-    
+
     model.train()
     return accuracy, avg_loss
 
@@ -193,36 +199,37 @@ def print_sample_predictions(model, dataset, num_samples=5):
     Print sample predictions for inspection.
     """
     model.eval()
-    
-    print("\n" + "="*60)
+
+    print("\n" + "=" * 60)
     print("Sample Predictions:")
-    print("="*60)
-    
+    print("=" * 60)
+
     indices = np.random.choice(len(dataset), size=num_samples, replace=False)
-    
+
     for idx in indices:
         example = dataset[int(idx)]
         text = example["sentence"]
         true_label = example["label"]
-        
+
         # Encode and predict
         encoded = encode_text(text).unsqueeze(0).to(device)
-        
+
         with torch.no_grad():
             with ctx:
                 logits, _ = model(encoded)
-        
+
         pred_label = torch.argmax(logits, dim=-1).item()
         probs = torch.softmax(logits, dim=-1).squeeze()
-        
+
         label_names = ["negative", "positive"]
-        
+
         print(f"\nText: {text[:80]}{'...' if len(text) > 80 else ''}")
         print(f"True: {label_names[true_label]} | Predicted: {label_names[pred_label]}")
         print(f"Confidence: neg={probs[0]:.3f}, pos={probs[1]:.3f}")
-        print("-"*60)
-    
+        print("-" * 60)
+
     model.train()
+
 
 # Learning Rate Scheduler
 def get_lr(it):
@@ -238,6 +245,7 @@ def get_lr(it):
     coeff = 0.5 * (1.0 + np.cos(np.pi * decay_ratio))
     return MIN_LR + coeff * (MAX_LR - MIN_LR)
 
+
 # --- Main Execution ---
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train BDH for text classification on SST-2.")
@@ -248,15 +256,15 @@ if __name__ == "__main__":
     parser.add_argument('--learning_rate', type=float, default=MAX_LR,
                         help='Learning rate')
     args = parser.parse_args()
-    
+
     # Update config with command line args
     MAX_ITERS = args.max_iters
     BATCH_SIZE = args.batch_size
     MAX_LR = args.learning_rate
-    
+
     # Load data
     train_dataset, val_dataset = load_sst2_data()
-    
+
     # Initialize model
     print("\nInitializing BDH classifier...")
     model_config = BDHConfig(
@@ -264,18 +272,19 @@ if __name__ == "__main__":
         n_embd=256,
         n_head=4,
         vocab_size=50304,  # GPT-2 vocab size (aligned to 64)
-        dropout=0.0        # Disabled dropout for faster learning
+        dropout=0.0  # Disabled dropout for faster learning
     )
-    
+
     model = BDHClassifier(model_config, num_classes=2).to(device)
-    
-    print(f"Model initialized with {sum(p.numel() for p in model.parameters())/1e6:.2f}M parameters.")
-    
+
+    print(f"Model initialized with {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M parameters.")
+
     # Compilation
     if USE_COMPILE:
         print(f"Compiling the model...")
         try:
             import torch._dynamo
+
             torch._dynamo.config.suppress_errors = True
             model = torch.compile(model, backend="aot_eager")
             print("Model compiled successfully with 'aot_eager' backend.")
@@ -283,10 +292,10 @@ if __name__ == "__main__":
             print(f"Warning: torch.compile failed with error: {e}\nContinuing without compilation...")
     else:
         print("Compilation disabled, running in eager mode.")
-    
+
     # Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=MAX_LR, weight_decay=WEIGHT_DECAY)
-    
+
     # Initialize CSV Logger
     with open(LOG_FILE, 'w', newline='') as f:
         writer = csv.writer(f)
@@ -294,77 +303,77 @@ if __name__ == "__main__":
 
     # Training loop
     print(f"\nStarting training for {MAX_ITERS} iterations...")
-    print(f"Batch size: {BATCH_SIZE} (Accumulated: {BATCH_SIZE*GRAD_ACCUM_STEPS})")
-    
+    print(f"Batch size: {BATCH_SIZE} (Accumulated: {BATCH_SIZE * GRAD_ACCUM_STEPS})")
+
     model.train()
     loss_acc = 0.0
     loss_steps = 0
     best_val_accuracy = 0.0
-    
+
     for step in range(MAX_ITERS):
         # Determine learning rate for this step
         lr = get_lr(step)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
-            
+
         # Gradient Accumulation Loop
         for micro_step in range(GRAD_ACCUM_STEPS):
             inputs, labels = get_batch(train_dataset, batch_size=BATCH_SIZE)
             with ctx:
                 logits, loss = model(inputs, labels)
-                loss = loss / GRAD_ACCUM_STEPS # Scale loss
-            
+                loss = loss / GRAD_ACCUM_STEPS  # Scale loss
+
             scaler.scale(loss).backward()
-            loss_acc += loss.item() * GRAD_ACCUM_STEPS # Track scaled-up loss
-        
+            loss_acc += loss.item() * GRAD_ACCUM_STEPS  # Track scaled-up loss
+
         scaler.step(optimizer)
         scaler.update()
         optimizer.zero_grad(set_to_none=True)
-        
+
         loss_steps += 1
-        
+
         # Logging
         if step > 0 and step % LOG_FREQ == 0:
             avg_loss = loss_acc / loss_steps
-            
+
             # Calculate training accuracy on LAST batch
             with torch.no_grad():
                 preds = torch.argmax(logits, dim=-1)
                 train_acc = (preds == labels).float().mean().item()
-            
+
             print(f"Step: {step}/{MAX_ITERS} | loss: {avg_loss:.4f} | train_acc: {train_acc:.4f} | lr: {lr:.2e}")
-            
+
             # Log to CSV (use -1 for val metrics initially)
             with open(LOG_FILE, 'a', newline='') as f:
                 writer = csv.writer(f)
                 # Note: We only log val metrics when they are computed, otherwise we leave them empty or repeat last known
-                # For simplicity, let's log basic step info here. Ideally we'd want one unified log row per step if possible, 
+                # For simplicity, let's log basic step info here. Ideally we'd want one unified log row per step if possible,
                 # but since val happens less frequently, we'll just append what we have.
                 # To make it clean, we can just log the training metrics here.
                 writer.writerow([step, f"{avg_loss:.4f}", f"{train_acc:.4f}", "", "", f"{lr:.2e}"])
 
             loss_acc = 0.0
             loss_steps = 0
-        
+
         # Validation
         if step > 0 and step % EVAL_FREQ == 0:
             print(f"\n--- Evaluating at step {step} ---")
             val_accuracy, val_loss = evaluate(model, val_dataset)
             print(f"Validation accuracy: {val_accuracy:.4f} | Validation loss: {val_loss:.4f}")
-            
+
             # Update CSV with validation metrics
             # We'll write a special row or just re-log the step with val metrics
             with open(LOG_FILE, 'a', newline='') as f:
-                 writer = csv.writer(f)
-                 writer.writerow([step, "", "", f"{val_accuracy:.4f}", f"{val_loss:.4f}", ""])
+                writer = csv.writer(f)
+                writer.writerow([step, "", "", f"{val_accuracy:.4f}", f"{val_loss:.4f}", ""])
 
             if val_accuracy > best_val_accuracy:
                 best_val_accuracy = val_accuracy
                 print(f"New best validation accuracy: {best_val_accuracy:.4f}")
                 torch.save(model.state_dict(), "bdh_sst2_best.pth")
-            
+
             print("-" * 50)
-        
+
         # Checkpointing
         if step > 0 and step % CHECKPOINT_FREQ == 0:
             print(f"\n--- Saving checkpoint at step {step} ---")
@@ -372,23 +381,23 @@ if __name__ == "__main__":
             print(f"Model checkpoint saved.")
             print_sample_predictions(model, val_dataset, num_samples=3)
             print("-" * 50)
-    
+
     # Final evaluation
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Training finished!")
-    print("="*60)
-    
+    print("=" * 60)
+
     print("\nRunning final evaluation on full validation set...")
     val_accuracy, val_loss = evaluate(model, val_dataset)
     print(f"Final validation accuracy: {val_accuracy:.4f}")
-    
+
     # Detailed evaluation
     model.eval()
     all_preds = []
     all_labels = []
     num_examples = len(val_dataset)
     num_batches = (num_examples + BATCH_SIZE - 1) // BATCH_SIZE
-    
+
     print("\nGenerating predictions for confusion matrix...")
     for i in tqdm(range(num_batches)):
         start_idx = i * BATCH_SIZE
@@ -400,14 +409,14 @@ if __name__ == "__main__":
         preds = torch.argmax(logits, dim=-1)
         all_preds.extend(preds.cpu().numpy())
         all_labels.extend(labels.cpu().numpy())
-    
+
     print("\nConfusion Matrix:")
     print(confusion_matrix(all_labels, all_preds))
     print("\nClassification Report:")
     print(classification_report(all_labels, all_preds, target_names=["negative", "positive"]))
-    
+
     print_sample_predictions(model, val_dataset, num_samples=10)
-    
+
     print(f"\nSaving final model to bdh_sst2_final.pth...")
     torch.save(model.state_dict(), "bdh_sst2_final.pth")
     print("Final model saved successfully.")
