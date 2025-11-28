@@ -255,12 +255,15 @@ if __name__ == "__main__":
                         help='Batch size for training')
     parser.add_argument('--learning_rate', type=float, default=MAX_LR,
                         help='Learning rate')
+    parser.add_argument('--grad_accum_steps', type=int, default=GRAD_ACCUM_STEPS,
+                        help='Number of gradient accumulation steps')
     args = parser.parse_args()
 
     # Update config with command line args
     MAX_ITERS = args.max_iters
     BATCH_SIZE = args.batch_size
     MAX_LR = args.learning_rate
+    GRAD_ACCUM_STEPS = args.grad_accum_steps
 
     # Load data
     train_dataset, val_dataset = load_sst2_data()
