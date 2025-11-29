@@ -32,6 +32,9 @@ class BDHClassifier(nn.Module):
         # We need to extract features before the lm_head
         self.bdh_core = self._build_bdh_core(config)
         
+        # Attention-based pooling query vector
+        self.pooling_query = nn.Parameter(torch.zeros(config.n_embd).normal_(std=0.02))
+        
         # Classification head
         self.classifier = nn.Linear(config.n_embd, num_classes)
         
@@ -39,6 +42,9 @@ class BDHClassifier(nn.Module):
         nn.init.normal_(self.classifier.weight, mean=0.0, std=0.02)
         if self.classifier.bias is not None:
             nn.init.zeros_(self.classifier.bias)
+        
+        # Label smoothing parameter
+        self.label_smoothing = 0.1
     
     def _build_bdh_core(self, config: BDHConfig):
         """
@@ -112,8 +118,11 @@ class BDHClassifier(nn.Module):
         # Remove the head dimension and get (B, T, D)
         x = x.squeeze(1)  # (B, T, D)
         
-        # Mean pooling over the sequence dimension
-        pooled = x.mean(dim=1)  # (B, D)
+        # Attention-based pooling over the sequence dimension
+        # Compute attention weights: (B, T, D) @ (D,) -> (B, T)
+        attention_scores = (x @ self.pooling_query).softmax(dim=1)  # (B, T)
+        # Weighted sum: (B, T, 1) * (B, T, D) -> (B, D)
+        pooled = (attention_scores.unsqueeze(-1) * x).sum(dim=1)  # (B, D)
         
         # Classification head
         logits = self.classifier(pooled)  # (B, num_classes)
@@ -121,7 +130,7 @@ class BDHClassifier(nn.Module):
         # Compute loss if targets provided
         loss = None
         if targets is not None:
-            loss = F.cross_entropy(logits, targets)
+            loss = F.cross_entropy(logits, targets, label_smoothing=self.label_smoothing)
         
         return logits, loss
     

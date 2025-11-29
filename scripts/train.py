@@ -25,14 +25,14 @@ from bdh import BDHConfig, BDHClassifier
 BLOCK_SIZE = 256  # Maximum sequence length
 BATCH_SIZE = 64  # Physical batch size (optimized for V100 GPU with 16GB VRAM)
 GRAD_ACCUM_STEPS = 1  # No gradient accumulation needed with larger batch size
-MAX_ITERS = 20000
+MAX_ITERS = 30000  # Train longer for better convergence
 LOG_FILE = "training_log.csv"
 
-# Learning Rate Schedule (adjusted for larger batch size)
-MAX_LR = 8e-4  # Increased from 6e-4 for batch size 64
-MIN_LR = 8e-5  # Scaled proportionally
-WARMUP_ITERS = 2000
-LR_DECAY_ITERS = 20000
+# Learning Rate Schedule (optimized for better convergence)
+MAX_LR = 2.5e-4  # Lower initial LR for stability
+MIN_LR = 1e-6    # Lower minimum LR for fine-tuning
+WARMUP_ITERS = 3000  # Longer warmup for stability
+LR_DECAY_ITERS = 30000  # Match max iterations
 
 WEIGHT_DECAY = 0.1
 LOG_FREQ = 200
@@ -271,11 +271,11 @@ if __name__ == "__main__":
     # Initialize model
     print("\nInitializing BDH classifier...")
     model_config = BDHConfig(
-        n_layer=6,
-        n_embd=256,
-        n_head=4,
-        vocab_size=50304,  # GPT-2 vocab size (aligned to 64)
-        dropout=0.0  # Disabled dropout for faster learning
+        n_layer=8,        # Increased from 6 to 8 layers
+        n_embd=384,       # Increased from 256 to 384
+        n_head=6,         # Increased from 4 to 6 heads
+        vocab_size=50304,  # GPT-2 vocab size
+        dropout=0.1       # Enable dropout for regularization
     )
 
     model = BDHClassifier(model_config, num_classes=2).to(device)
