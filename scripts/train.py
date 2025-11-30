@@ -25,7 +25,8 @@ from bdh import BDHConfig, BDHClassifier
 BLOCK_SIZE = 256  # Maximum sequence length
 BATCH_SIZE = 64  # Physical batch size (optimized for V100 GPU with 16GB VRAM)
 GRAD_ACCUM_STEPS = 1  # No gradient accumulation needed with larger batch size
-MAX_ITERS = 30000  # Train longer for better convergence
+MAX_ITERS = 10000
+LR_DECAY_ITERS = 10000 # Match this
 LOG_FILE = "training_log.csv"
 
 # Learning Rate Schedule (optimized for better convergence)
@@ -34,7 +35,7 @@ MIN_LR = 1e-6    # Lower minimum LR for fine-tuning
 WARMUP_ITERS = 3000  # Longer warmup for stability
 LR_DECAY_ITERS = 30000  # Match max iterations
 
-WEIGHT_DECAY = 0.1
+WEIGHT_DECAY = 0.2
 LOG_FREQ = 200
 EVAL_FREQ = 1000  # Evaluate on validation set every N steps
 CHECKPOINT_FREQ = 5000
@@ -270,12 +271,13 @@ if __name__ == "__main__":
 
     # Initialize model
     print("\nInitializing BDH classifier...")
+    # NEW CONFIG (~5-10M params)
     model_config = BDHConfig(
-        n_layer=8,        # Increased from 6 to 8 layers
-        n_embd=384,       # Increased from 256 to 384
-        n_head=6,         # Increased from 4 to 6 heads
-        vocab_size=50304,  # GPT-2 vocab size
-        dropout=0.1       # Enable dropout for regularization
+        n_layer=2,  # Reduced from 8 to 2
+        n_embd=128,  # Reduced from 384 to 128
+        n_head=4,  # Reduced from 6 to 4
+        vocab_size=50304,  # Keep same (required by tiktoken)
+        dropout=0.3  # Increased from 0.1 for regularization
     )
 
     model = BDHClassifier(model_config, num_classes=2).to(device)
@@ -312,6 +314,8 @@ if __name__ == "__main__":
     loss_acc = 0.0
     loss_steps = 0
     best_val_accuracy = 0.0
+    patience = 5
+    patience_counter = 0
 
     for step in range(MAX_ITERS):
         # Determine learning rate for this step
@@ -376,6 +380,17 @@ if __name__ == "__main__":
                 torch.save(model.state_dict(), "bdh_sst2_best.pth")
 
             print("-" * 50)
+            if val_accuracy > best_val_accuracy:
+                best_val_accuracy = val_accuracy
+                patience_counter = 0  # Reset counter
+                torch.save(model.state_dict(), "bdh_sst2_best.pth")
+            else:
+                patience_counter += 1
+                print(f"No improvement. Patience: {patience_counter}/{patience}")
+
+            if patience_counter >= patience:
+                print("Early stopping triggered to prevent overfitting.")
+                break
 
         # Checkpointing
         if step > 0 and step % CHECKPOINT_FREQ == 0:
