@@ -22,18 +22,18 @@ sys.path.append(str(Path(__file__).parent.parent))
 from bdh import BDHConfig, BDHClassifier
 
 # --- Configuration Section ---
-BLOCK_SIZE = 256  # Maximum sequence length
+BLOCK_SIZE = 128  # Maximum sequence length
 BATCH_SIZE = 64  # Physical batch size (optimized for V100 GPU with 16GB VRAM)
 GRAD_ACCUM_STEPS = 1  # No gradient accumulation needed with larger batch size
-MAX_ITERS = 10000
+MAX_ITERS = 8000
 LR_DECAY_ITERS = 10000 # Match this
 LOG_FILE = "training_log.csv"
 
 # Learning Rate Schedule (optimized for better convergence)
-MAX_LR = 2.5e-4  # Lower initial LR for stability
-MIN_LR = 1e-6    # Lower minimum LR for fine-tuning
-WARMUP_ITERS = 3000  # Longer warmup for stability
-LR_DECAY_ITERS = 30000  # Match max iterations
+MAX_LR = 5e-4         # Slightly higher because model is smaller
+MIN_LR = 1e-5
+WARMUP_ITERS = 500
+LR_DECAY_ITERS = 8000
 
 WEIGHT_DECAY = 0.2
 LOG_FREQ = 200
@@ -273,8 +273,8 @@ if __name__ == "__main__":
     print("\nInitializing BDH classifier...")
     # NEW CONFIG (~5-10M params)
     model_config = BDHConfig(
-        n_layer=2,  # Reduced from 8 to 2
-        n_embd=128,  # Reduced from 384 to 128
+        n_layer=4,  # Reduced from 8 to 2
+        n_embd=192,  # Reduced from 384 to 128
         n_head=4,  # Reduced from 6 to 4
         vocab_size=50304,  # Keep same (required by tiktoken)
         dropout=0.3  # Increased from 0.1 for regularization
